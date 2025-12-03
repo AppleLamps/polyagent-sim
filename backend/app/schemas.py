@@ -4,15 +4,47 @@ from datetime import datetime
 
 
 # Request schemas
+class ActiveTradeInfo(BaseModel):
+    """Simplified trade info for analysis context."""
+    market_id: str
+    market_question: str
+    direction: str
+    amount: float
+    entry_price: float
+    current_price: Optional[float] = None
+    pnl: Optional[float] = None
+
+
+class PortfolioContext(BaseModel):
+    """Portfolio context for trade recommendations."""
+    balance: float
+    active_trades: List[ActiveTradeInfo] = []
+    total_pnl: float = 0.0
+
+
 class AnalyzeRequest(BaseModel):
     market_id: str
     question: str
     description: Optional[str] = None
     current_price: float = Field(ge=0.0, le=1.0)
     end_date: Optional[str] = None
+    # Price changes
+    one_hour_change: Optional[float] = None
     one_day_change: Optional[float] = None
     one_week_change: Optional[float] = None
+    one_month_change: Optional[float] = None
+    # Volume & liquidity
     volume_24h: Optional[float] = None
+    volume_1w: Optional[float] = None
+    liquidity: Optional[float] = None
+    spread: Optional[float] = None
+    # Engagement & metadata
+    comment_count: Optional[int] = None
+    competitive: Optional[float] = None
+    tags: Optional[List[str]] = None
+    days_until_resolution: Optional[int] = None
+    # Portfolio context for trade recommendations
+    portfolio: Optional[PortfolioContext] = None
 
 
 class SimulateTradeRequest(BaseModel):
@@ -39,6 +71,15 @@ class SimulateTradeRequest(BaseModel):
 
 
 # Response schemas
+class TradeRecommendation(BaseModel):
+    """AI-generated trade recommendation."""
+    action: str  # "BUY_YES", "BUY_NO", "HOLD", "SKIP"
+    amount: Optional[float] = None  # Recommended amount in USDC
+    reasoning: str  # Why this recommendation
+    risk_level: str  # "low", "medium", "high"
+    kelly_fraction: Optional[float] = None  # Optimal bet size as fraction of bankroll
+
+
 class AnalysisResult(BaseModel):
     estimated_probability: float
     confidence: str  # low, medium, high
@@ -47,6 +88,7 @@ class AnalysisResult(BaseModel):
     risks: List[str]  # What could go wrong
     sources: List[str]
     edge: float  # AI prob - market price
+    recommendation: Optional[TradeRecommendation] = None
 
 
 class MarketInfo(BaseModel):

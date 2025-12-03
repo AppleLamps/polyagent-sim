@@ -19,7 +19,7 @@ from .schemas import (
     TradeResponse, PortfolioInfo, TradeInfo, MarketInfo, ResetResponse, PriceUpdateResponse,
     CalculateReturnRequest, CalculateReturnResponse
 )
-from .services import xai_service, polymarket_service
+from .services import xai_service, polymarket_service, market_analyzer
 from .config import get_settings
 
 # Configure logging
@@ -113,7 +113,7 @@ def root():
 
 @app.get("/markets", response_model=List[MarketInfo])
 async def get_markets(request: Request):
-    """Fetch active markets from Polymarket with caching."""
+    """Fetch active markets from Polymarket with caching (top 100 by volume)."""
     settings = get_settings()
 
     # Rate limit using configurable settings
@@ -132,9 +132,9 @@ async def get_markets(request: Request):
         (now - _market_cache["timestamp"]).total_seconds() < settings.cache_ttl):
         return _market_cache["data"]
 
-    # Fetch fresh data
+    # Fetch fresh data - increased limit to 100 to show more markets
     try:
-        markets = await polymarket_service.fetch_active_markets(limit=30)
+        markets = await polymarket_service.fetch_active_markets(limit=100)
         result = [MarketInfo(**m) for m in markets]
 
         # Update cache
@@ -147,6 +147,59 @@ async def get_markets(request: Request):
         if _market_cache["data"] is not None:
             return _market_cache["data"]
         raise HTTPException(status_code=500, detail=f"Failed to fetch markets: {str(e)}")
+
+
+@app.get("/markets/search", response_model=List[MarketInfo])
+async def search_markets(request: Request, q: str):
+    """Search for markets by keyword. Searches event titles and market questions."""
+    settings = get_settings()
+
+    # Rate limit
+    client_ip = get_client_ip(request)
+    if not check_rate_limit(client_ip, "search", max_requests=settings.rate_limit_markets, window_seconds=60):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Maximum {settings.rate_limit_markets} search requests per minute."
+        )
+
+    if not q or len(q) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+
+    try:
+        markets = await polymarket_service.search_markets(query=q, limit=50)
+        return [MarketInfo(**m) for m in markets]
+    except Exception as e:
+        logger.error(f"Search failed for query '{q}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@app.get("/markets/top")
+async def get_top_opportunities(request: Request, limit: int = 10):
+    """
+    Get top trading opportunities ranked by opportunity score.
+
+    Analyzes markets based on: momentum, volume, liquidity, spread,
+    uncertainty (prices near 50%), timing (days to resolution), and engagement.
+    """
+    settings = get_settings()
+
+    # Rate limit
+    client_ip = get_client_ip(request)
+    if not check_rate_limit(client_ip, "top", max_requests=settings.rate_limit_markets, window_seconds=60):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Maximum {settings.rate_limit_markets} requests per minute."
+        )
+
+    if limit < 1 or limit > 50:
+        limit = 10
+
+    try:
+        opportunities = await market_analyzer.get_top_opportunities(limit=limit)
+        return opportunities
+    except Exception as e:
+        logger.error(f"Failed to get top opportunities: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze markets: {str(e)}")
 
 
 @app.post("/analyze", response_model=AnalysisResult)
@@ -165,6 +218,26 @@ async def analyze_market(request: AnalyzeRequest, http_request: Request, db: Ses
 
     logger.info(f"Analyzing market: {request.market_id[:20]}... price={request.current_price:.2f}")
     try:
+        # Convert portfolio context to dict if provided
+        portfolio_dict = None
+        if request.portfolio:
+            portfolio_dict = {
+                "balance": request.portfolio.balance,
+                "total_pnl": request.portfolio.total_pnl,
+                "active_trades": [
+                    {
+                        "market_id": t.market_id,
+                        "market_question": t.market_question,
+                        "direction": t.direction,
+                        "amount": t.amount,
+                        "entry_price": t.entry_price,
+                        "current_price": t.current_price,
+                        "pnl": t.pnl
+                    }
+                    for t in request.portfolio.active_trades
+                ]
+            }
+
         # Run synchronous AI call in thread pool to avoid blocking the event loop
         loop = asyncio.get_event_loop()
         analyze_func = partial(
@@ -173,9 +246,19 @@ async def analyze_market(request: AnalyzeRequest, http_request: Request, db: Ses
             current_price=request.current_price,
             description=request.description,
             end_date=request.end_date,
+            one_hour_change=request.one_hour_change,
             one_day_change=request.one_day_change,
             one_week_change=request.one_week_change,
-            volume_24h=request.volume_24h
+            one_month_change=request.one_month_change,
+            volume_24h=request.volume_24h,
+            volume_1w=request.volume_1w,
+            liquidity=request.liquidity,
+            spread=request.spread,
+            comment_count=request.comment_count,
+            competitive=request.competitive,
+            tags=request.tags,
+            days_until_resolution=request.days_until_resolution,
+            portfolio=portfolio_dict
         )
         result = await loop.run_in_executor(_executor, analyze_func)
 
@@ -195,6 +278,19 @@ async def analyze_market(request: AnalyzeRequest, http_request: Request, db: Ses
         db.add(log)
         db.commit()
 
+        # Build recommendation if present
+        recommendation = None
+        if result.get("recommendation"):
+            from .schemas import TradeRecommendation
+            rec = result["recommendation"]
+            recommendation = TradeRecommendation(
+                action=rec.get("action", "SKIP"),
+                amount=rec.get("amount"),
+                reasoning=rec.get("reasoning", ""),
+                risk_level=rec.get("risk_level", "medium"),
+                kelly_fraction=rec.get("kelly_fraction")
+            )
+
         return AnalysisResult(
             estimated_probability=result["estimated_probability"],
             confidence=result.get("confidence", "medium"),
@@ -202,7 +298,8 @@ async def analyze_market(request: AnalyzeRequest, http_request: Request, db: Ses
             key_events=result.get("key_events", []),
             risks=result.get("risks", []),
             sources=result.get("sources", []),
-            edge=edge
+            edge=edge,
+            recommendation=recommendation
         )
     except Exception as e:
         logger.error(f"Analysis failed for market {request.market_id}: {str(e)}", exc_info=True)

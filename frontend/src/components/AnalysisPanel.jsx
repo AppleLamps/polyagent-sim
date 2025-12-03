@@ -1,13 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { analyzeMarket } from '../api';
 import ProbabilityBar from './ProbabilityBar';
 import SourceList from './SourceList';
 import TradeForm from './TradeForm';
+import db, { id } from '../db';
 
-function AnalysisPanel({ market }) {
+function AnalysisPanel({ market, preloadedAnalysis, onAnalysisComplete, portfolio }) {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Load preloaded analysis from history
+  useEffect(() => {
+    if (preloadedAnalysis) {
+      setAnalysis({
+        estimated_probability: preloadedAnalysis.aiProbability,
+        confidence: preloadedAnalysis.confidence,
+        reasoning: preloadedAnalysis.reasoning,
+        edge: preloadedAnalysis.edge,
+        key_events: [],
+        risks: [],
+        sources: [],
+      });
+    }
+  }, [preloadedAnalysis]);
+
+  // Clear analysis when market changes
+  useEffect(() => {
+    if (!preloadedAnalysis) {
+      setAnalysis(null);
+      setError(null);
+    }
+  }, [market?.id]);
+
+  const saveToHistory = async (market, result) => {
+    try {
+      await db.transact(
+        db.tx.analysisHistory[id()].update({
+          marketId: market.id,
+          marketQuestion: market.question,
+          marketPrice: market.yes_price,
+          aiProbability: result.estimated_probability,
+          edge: result.edge,
+          confidence: result.confidence || 'medium',
+          reasoning: result.reasoning,
+          createdAt: Date.now(),
+        })
+      );
+    } catch (err) {
+      console.error('Failed to save analysis to history:', err);
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!market) return;
@@ -17,8 +60,16 @@ function AnalysisPanel({ market }) {
     setAnalysis(null);
 
     try {
-      const result = await analyzeMarket(market);
+      const result = await analyzeMarket(market, portfolio);
       setAnalysis(result);
+
+      // Save to InstantDB history
+      await saveToHistory(market, result);
+
+      // Notify parent
+      if (onAnalysisComplete) {
+        onAnalysisComplete(result);
+      }
     } catch (err) {
       // Parse error to provide more specific error messages
       let errorMessage = 'Failed to analyze market.';
@@ -99,7 +150,7 @@ function AnalysisPanel({ market }) {
 
           {market.volume_24h > 0 && (
             <span className="text-text-dark">
-              Vol 24h: ${market.volume_24h >= 1000 ? `${(market.volume_24h / 1000).toFixed(0)}K` : market.volume_24h.toFixed(0)}
+              Vol 24h: ${Math.round(market.volume_24h).toLocaleString()}
             </span>
           )}
 
@@ -162,6 +213,50 @@ function AnalysisPanel({ market }) {
             marketPrice={market.yes_price}
             aiPrice={analysis.estimated_probability}
           />
+
+          {/* Trade Recommendation */}
+          {analysis.recommendation && (
+            <div className={`p-4 border-2 ${analysis.recommendation.action === 'BUY_YES' ? 'border-green-600 bg-green-50' :
+              analysis.recommendation.action === 'BUY_NO' ? 'border-blue-600 bg-blue-50' :
+                analysis.recommendation.action === 'HOLD' ? 'border-yellow-600 bg-yellow-50' :
+                  'border-gray-400 bg-gray-50'
+              }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-lg font-bold ${analysis.recommendation.action === 'BUY_YES' ? 'text-green-700' :
+                  analysis.recommendation.action === 'BUY_NO' ? 'text-blue-700' :
+                    analysis.recommendation.action === 'HOLD' ? 'text-yellow-700' :
+                      'text-gray-600'
+                  }`}>
+                  {analysis.recommendation.action === 'BUY_YES' ? '✅ BUY YES' :
+                    analysis.recommendation.action === 'BUY_NO' ? '🔵 BUY NO' :
+                      analysis.recommendation.action === 'HOLD' ? '⏸️ HOLD' :
+                        '⏭️ SKIP'}
+                </span>
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${analysis.recommendation.risk_level === 'low' ? 'bg-green-200 text-green-800' :
+                  analysis.recommendation.risk_level === 'high' ? 'bg-red-200 text-red-800' :
+                    'bg-yellow-200 text-yellow-800'
+                  }`}>
+                  {analysis.recommendation.risk_level?.toUpperCase()} RISK
+                </span>
+              </div>
+
+              {analysis.recommendation.amount && (
+                <div className="text-2xl font-bold font-mono mb-2">
+                  ${analysis.recommendation.amount.toFixed(2)}
+                </div>
+              )}
+
+              <p className="text-sm text-gray-700 mb-2">
+                {analysis.recommendation.reasoning}
+              </p>
+
+              {analysis.recommendation.kelly_fraction && (
+                <div className="text-xs text-gray-500">
+                  Kelly fraction: {(analysis.recommendation.kelly_fraction * 100).toFixed(1)}%
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Reasoning */}
           <div className="space-y-2">
