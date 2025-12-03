@@ -105,6 +105,20 @@ class ResetResponse(BaseModel):
     message: str
 
 
+class CalculateReturnRequest(BaseModel):
+    """Request model for calculating potential return."""
+    amount: float = Field(gt=0)
+    price: float = Field(gt=0, le=1.0)
+
+
+class CalculateReturnResponse(BaseModel):
+    """Response model for calculate return endpoint."""
+    amount: float
+    price: float
+    potential_return: float
+    shares: float
+
+
 class PriceUpdateResponse(BaseModel):
     """Response model for price update endpoint."""
     success: bool

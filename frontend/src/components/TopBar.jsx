@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { resetPortfolio } from '../api';
+import { usePortfolio } from '../context/PortfolioContext';
 
-function TopBar({ balance, pnl, onRefresh }) {
+function TopBar({ onRefresh }) {
   const [resetting, setResetting] = useState(false);
+  const { balance, totalPnl, refreshPortfolio } = usePortfolio();
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
@@ -27,7 +29,7 @@ function TopBar({ balance, pnl, onRefresh }) {
     try {
       setResetting(true);
       await resetPortfolio();
-      await onRefresh();
+      await refreshPortfolio();
     } catch (err) {
       alert('Failed to reset portfolio: ' + err.message);
     } finally {
@@ -60,8 +62,8 @@ function TopBar({ balance, pnl, onRefresh }) {
 
             <div className="text-right">
               <div className="text-xs text-text-dark uppercase tracking-wide">Total P&L</div>
-              <div className={`text-xl font-bold font-mono ${pnl >= 0 ? 'text-black' : 'text-text-dark'}`}>
-                {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)}
+              <div className={`text-xl font-bold font-mono ${totalPnl >= 0 ? 'text-black' : 'text-text-dark'}`}>
+                {totalPnl >= 0 ? '+' : ''}{formatCurrency(totalPnl)}
               </div>
             </div>
 

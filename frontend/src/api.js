@@ -56,3 +56,13 @@ export async function resetPortfolio() {
   return response.json();
 }
 
+export async function calculatePotentialReturn(amount, price) {
+  const response = await fetch(`${API_BASE}/calculate-return`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, price })
+  });
+  if (!response.ok) throw new Error('Failed to calculate return');
+  return response.json();
+}
+

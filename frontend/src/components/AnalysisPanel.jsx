@@ -4,7 +4,7 @@ import ProbabilityBar from './ProbabilityBar';
 import SourceList from './SourceList';
 import TradeForm from './TradeForm';
 
-function AnalysisPanel({ market, balance, onTradeComplete }) {
+function AnalysisPanel({ market }) {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -224,8 +224,6 @@ function AnalysisPanel({ market, balance, onTradeComplete }) {
             <TradeForm
               market={market}
               analysis={analysis}
-              balance={balance}
-              onTradeComplete={onTradeComplete}
             />
           </div>
 

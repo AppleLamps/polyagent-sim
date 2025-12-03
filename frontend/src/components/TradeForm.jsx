@@ -1,11 +1,42 @@
-import React, { useState } from 'react';
-import { simulateTrade } from '../api';
+import React, { useState, useMemo } from 'react';
+import { simulateTrade, calculatePotentialReturn } from '../api';
+import { usePortfolio } from '../context/PortfolioContext';
 
-function TradeForm({ market, analysis, balance, onTradeComplete }) {
+function TradeForm({ market, analysis }) {
   const [amount, setAmount] = useState('100');
   const [direction, setDirection] = useState('YES');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [potentialReturn, setPotentialReturn] = useState(null);
+
+  const { balance, refreshPortfolio } = usePortfolio();
+
+  // Calculate potential return on backend to avoid JS floating point issues
+  const updatePotentialReturn = async (amt, dir) => {
+    const numAmount = parseFloat(amt);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setPotentialReturn(null);
+      return;
+    }
+    const price = dir === 'YES' ? market.yes_price : market.no_price;
+    try {
+      const result = await calculatePotentialReturn(numAmount, price);
+      setPotentialReturn(result.potential_return);
+    } catch {
+      // Fallback to simple display if backend unavailable
+      setPotentialReturn(null);
+    }
+  };
+
+  // Debounced update when amount or direction changes
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (market) {
+        updatePotentialReturn(amount, direction);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [amount, direction, market]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,9 +63,9 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
         price
       );
       setAmount('100');
-      onTradeComplete();
+      await refreshPortfolio();
     } catch (err) {
-      setError('Failed to place trade');
+      setError(err.message || 'Failed to place trade');
     } finally {
       setLoading(false);
     }
@@ -42,6 +73,15 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
 
   const suggestedDirection = analysis.edge > 0 ? 'YES' : 'NO';
   const currentPrice = direction === 'YES' ? market.yes_price : market.no_price;
+
+  // Format currency consistently
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }).format(value);
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -66,8 +106,8 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
           type="button"
           onClick={() => setDirection('YES')}
           className={`py-3 font-medium transition-colors ${direction === 'YES'
-              ? 'bg-black text-white'
-              : 'bg-white text-black border border-black hover:bg-bg-light'
+            ? 'bg-black text-white'
+            : 'bg-white text-black border border-black hover:bg-bg-light'
             }`}
         >
           YES @ {(market.yes_price * 100).toFixed(1)}%
@@ -76,8 +116,8 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
           type="button"
           onClick={() => setDirection('NO')}
           className={`py-3 font-medium transition-colors ${direction === 'NO'
-              ? 'bg-black text-white'
-              : 'bg-white text-black border border-black hover:bg-bg-light'
+            ? 'bg-black text-white'
+            : 'bg-white text-black border border-black hover:bg-bg-light'
             }`}
         >
           NO @ {(market.no_price * 100).toFixed(1)}%
@@ -106,7 +146,7 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
           </button>
         </div>
         <div className="text-xs text-text-dark mt-1">
-          Available: ${balance.toFixed(2)}
+          Available: {formatCurrency(balance)}
         </div>
       </div>
 
@@ -115,7 +155,10 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
         <div className="flex justify-between text-sm">
           <span className="text-text-dark">Potential Return:</span>
           <span className="font-mono font-medium text-black">
-            ${((parseFloat(amount) || 0) / currentPrice).toFixed(2)}
+            {potentialReturn !== null
+              ? formatCurrency(potentialReturn)
+              : formatCurrency((parseFloat(amount) || 0) / currentPrice)
+            }
           </span>
         </div>
       </div>

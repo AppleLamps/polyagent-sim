@@ -17,15 +17,17 @@ def analyze_market(
     volume_24h: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Use Grok-4-1-fast with agentic search to analyze a prediction market.
+    Use AI with agentic search to analyze a prediction market.
+    Model is configurable via XAI_MODEL env var (default: grok-4-1-fast).
     Returns estimated probability, reasoning, confidence, key events, and risks.
     """
     settings = get_settings()
     client = Client(api_key=settings.xai_api_key)
 
     # Create chat with agentic search tools (web + X)
+    # Model is configurable via settings.xai_model
     chat = client.chat.create(
-        model="grok-4-1-fast",
+        model=settings.xai_model,
         tools=[
             web_search(),
             x_search(),

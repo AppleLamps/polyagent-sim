@@ -3,24 +3,25 @@ import TopBar from './components/TopBar';
 import MarketScanner from './components/MarketScanner';
 import AnalysisPanel from './components/AnalysisPanel';
 import TradeLog from './components/TradeLog';
-import { fetchMarkets, fetchPortfolio } from './api';
+import { PortfolioProvider, usePortfolio } from './context/PortfolioContext';
+import { fetchMarkets } from './api';
 
-function App() {
+function AppContent() {
   const [markets, setMarkets] = useState([]);
   const [selectedMarket, setSelectedMarket] = useState(null);
-  const [portfolio, setPortfolio] = useState({ balance: 10000, active_trades: [], total_pnl: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const { portfolio, refreshPortfolio } = usePortfolio();
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [marketsData, portfolioData] = await Promise.all([
+      const [marketsData] = await Promise.all([
         fetchMarkets(),
-        fetchPortfolio()
+        refreshPortfolio()
       ]);
       setMarkets(marketsData);
-      setPortfolio(portfolioData);
       setError(null);
     } catch (err) {
       setError('Failed to load data. Make sure the backend is running.');
@@ -34,19 +35,10 @@ function App() {
     loadData();
   }, []);
 
-  const refreshPortfolio = async () => {
-    try {
-      const portfolioData = await fetchPortfolio();
-      setPortfolio(portfolioData);
-    } catch (err) {
-      console.error('Failed to refresh portfolio:', err);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-bg-light">
-      <TopBar balance={portfolio.balance} pnl={portfolio.total_pnl} onRefresh={loadData} />
-      
+      <TopBar onRefresh={loadData} />
+
       <div className="max-w-7xl mx-auto px-4 py-6">
         {error && (
           <div className="mb-4 p-4 border border-black bg-white text-black">
@@ -67,17 +59,20 @@ function App() {
 
           {/* Right Column: Analysis & Execution */}
           <div className="lg:col-span-2 space-y-6">
-            <AnalysisPanel
-              market={selectedMarket}
-              balance={portfolio.balance}
-              onTradeComplete={refreshPortfolio}
-            />
-            
+            <AnalysisPanel market={selectedMarket} />
             <TradeLog trades={portfolio.active_trades} />
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <PortfolioProvider>
+      <AppContent />
+    </PortfolioProvider>
   );
 }
 

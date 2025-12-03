@@ -4,19 +4,20 @@ from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
 from functools import partial
 import asyncio
 import time
 import json
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Deque
 
 from .database import get_db, init_db, SessionLocal
 from .models import Portfolio, Trade, AnalysisLog, TradeDirection, TradeStatus
 from .schemas import (
     AnalyzeRequest, AnalysisResult, SimulateTradeRequest,
-    TradeResponse, PortfolioInfo, TradeInfo, MarketInfo, ResetResponse, PriceUpdateResponse
+    TradeResponse, PortfolioInfo, TradeInfo, MarketInfo, ResetResponse, PriceUpdateResponse,
+    CalculateReturnRequest, CalculateReturnResponse
 )
 from .services import xai_service, polymarket_service
 from .config import get_settings
@@ -30,28 +31,31 @@ logger = logging.getLogger(__name__)
 
 # Simple in-memory cache for market data
 _market_cache: Dict[str, Any] = {"data": None, "timestamp": None}
-CACHE_TTL = 60  # seconds
 
 # Thread pool for running synchronous AI calls without blocking
 _executor = ThreadPoolExecutor(max_workers=4)
 
-# Simple in-memory rate limiter
-_rate_limit_store: Dict[str, list] = defaultdict(list)
+# Rate limiter using deque for O(1) cleanup from front
+_rate_limit_store: Dict[str, Deque[float]] = defaultdict(lambda: deque(maxlen=100))
 
 def check_rate_limit(client_ip: str, endpoint: str, max_requests: int, window_seconds: int) -> bool:
     """Check if client has exceeded rate limit. Returns True if allowed, False if exceeded."""
     key = f"{client_ip}:{endpoint}"
     now = time.time()
+    window_start = now - window_seconds
 
-    # Clean old entries
-    _rate_limit_store[key] = [t for t in _rate_limit_store[key] if now - t < window_seconds]
+    requests = _rate_limit_store[key]
+
+    # Remove expired entries from front (O(k) where k = expired entries, not O(n))
+    while requests and requests[0] < window_start:
+        requests.popleft()
 
     # Check limit
-    if len(_rate_limit_store[key]) >= max_requests:
+    if len(requests) >= max_requests:
         return False
 
     # Record request
-    _rate_limit_store[key].append(now)
+    requests.append(now)
     return True
 
 def get_client_ip(request: Request) -> str:
@@ -110,20 +114,22 @@ def root():
 @app.get("/markets", response_model=List[MarketInfo])
 async def get_markets(request: Request):
     """Fetch active markets from Polymarket with caching."""
-    # Rate limit: max 30 requests per minute
+    settings = get_settings()
+
+    # Rate limit using configurable settings
     client_ip = get_client_ip(request)
-    if not check_rate_limit(client_ip, "markets", max_requests=30, window_seconds=60):
+    if not check_rate_limit(client_ip, "markets", max_requests=settings.rate_limit_markets, window_seconds=60):
         raise HTTPException(
             status_code=429,
-            detail="Rate limit exceeded. Maximum 30 market requests per minute."
+            detail=f"Rate limit exceeded. Maximum {settings.rate_limit_markets} market requests per minute."
         )
 
     now = datetime.now()
 
-    # Check cache - return cached data if still valid
+    # Check cache - return cached data if still valid (TTL from settings)
     if (_market_cache["data"] is not None and
         _market_cache["timestamp"] is not None and
-        (now - _market_cache["timestamp"]).total_seconds() < CACHE_TTL):
+        (now - _market_cache["timestamp"]).total_seconds() < settings.cache_ttl):
         return _market_cache["data"]
 
     # Fetch fresh data
@@ -146,13 +152,15 @@ async def get_markets(request: Request):
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_market(request: AnalyzeRequest, http_request: Request, db: Session = Depends(get_db)):
     """Analyze a market using Grok-4 with live search."""
-    # Rate limit: max 5 analyses per minute
+    settings = get_settings()
+
+    # Rate limit using configurable settings
     client_ip = get_client_ip(http_request)
-    if not check_rate_limit(client_ip, "analyze", max_requests=5, window_seconds=60):
+    if not check_rate_limit(client_ip, "analyze", max_requests=settings.rate_limit_analyze, window_seconds=60):
         logger.warning(f"Rate limit exceeded for IP: {client_ip}")
         raise HTTPException(
             status_code=429,
-            detail="Rate limit exceeded. Maximum 5 analyses per minute. Please wait and try again."
+            detail=f"Rate limit exceeded. Maximum {settings.rate_limit_analyze} analyses per minute. Please wait and try again."
         )
 
     logger.info(f"Analyzing market: {request.market_id[:20]}... price={request.current_price:.2f}")
@@ -218,9 +226,6 @@ async def simulate_trade(request: SimulateTradeRequest, db: Session = Depends(ge
     if request.direction not in ["YES", "NO"]:
         raise HTTPException(status_code=400, detail="Direction must be YES or NO")
 
-    # Deduct from balance
-    portfolio.balance -= request.amount
-
     # Create trade
     trade = Trade(
         market_id=request.market_id,
@@ -232,7 +237,12 @@ async def simulate_trade(request: SimulateTradeRequest, db: Session = Depends(ge
         status=TradeStatus.ACTIVE
     )
     db.add(trade)
+
+    # Deduct from balance using SQLAlchemy expression to prevent race conditions
+    # This generates: UPDATE portfolio SET balance = balance - :amount
+    portfolio.balance = Portfolio.balance - request.amount
     db.commit()
+    db.refresh(portfolio)  # Get the updated value from DB
     db.refresh(trade)
 
     logger.info(f"Trade placed: ${request.amount:.2f} {request.direction} @ {request.price:.2f} | Balance: ${portfolio.balance:.2f}")
@@ -327,3 +337,23 @@ async def update_trade_prices(db: Session = Depends(get_db)):
         message=f"Updated prices for {updated_count} of {len(trades)} active trades"
     )
 
+
+@app.post("/calculate-return", response_model=CalculateReturnResponse)
+async def calculate_potential_return(request: CalculateReturnRequest):
+    """Calculate potential return using Python's Decimal for precision."""
+    from decimal import Decimal, ROUND_HALF_UP
+
+    # Use Decimal for precise financial calculations
+    amount = Decimal(str(request.amount))
+    price = Decimal(str(request.price))
+
+    # Calculate shares and potential return with precision
+    shares = (amount / price).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+    potential_return = shares.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    return CalculateReturnResponse(
+        amount=float(amount),
+        price=float(price),
+        potential_return=float(potential_return),
+        shares=float(shares)
+    )
