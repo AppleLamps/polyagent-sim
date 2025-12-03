@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #F9FAFB;
+  color: #000000;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar for light theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F9FAFB;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #000000;
+}
+
+/* Flat button styles */
+.btn-primary {
+  @apply bg-black text-white px-4 py-2 font-medium transition-opacity hover:opacity-80 active:opacity-70;
+}
+
+.btn-secondary {
+  @apply bg-white text-black border border-black px-4 py-2 font-medium transition-opacity hover:bg-gray-50;
+}
+
+/* Card styles */
+.card {
+  @apply bg-white border border-black p-4;
+}
+
+/* Input styles */
+.input-field {
+  @apply w-full px-3 py-2 border border-black bg-white text-black placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-black;
+}
+
