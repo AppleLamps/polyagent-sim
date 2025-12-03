@@ -1,70 +1,122 @@
 # PolyAgent Sim
 
-A full-stack Polymarket Value-Betting AI Simulator. Uses AI (Grok-4 with live search) to analyze prediction markets and simulate trades with virtual USDC.
+An AI-powered prediction market simulator that analyzes Polymarket opportunities using Grok-4 with live web search.
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11+-green.svg)
+![React](https://img.shields.io/badge/react-18+-61DAFB.svg)
+
+## Overview
+
+PolyAgent Sim combines real-time market data from Polymarket with AI-driven analysis to identify value betting opportunities. Trade with $100,000 in virtual USDC to test strategies without risk.
+
+### Key Features
+
+- **Real-Time Market Data** — Live prices from Polymarket Gamma API
+- **AI-Powered Analysis** — Grok-4 with agentic web + X search for probability estimation
+- **Edge Detection** — Automatically calculate edge between AI estimates and market prices
+- **Paper Trading** — Simulate trades with virtual balance tracking
+- **Portfolio Management** — Track positions, P&L, and trade history
 
 ## Tech Stack
 
-- **Backend:** FastAPI + SQLite + SQLAlchemy
-- **Frontend:** React (Vite) + Tailwind CSS
-- **AI:** xAI SDK v1.3.1+ (Grok-4-1-fast with Agentic Search)
-- **Market Data:** Polymarket Gamma API (Read Only)
+| Layer | Technology |
+|-------|------------|
+| Backend | FastAPI, SQLAlchemy, SQLite |
+| Frontend | React 18, Vite, Tailwind CSS |
+| AI | xAI Grok-4 with Live Search |
+| Data | Polymarket Gamma API |
 
-## Setup
+## Quick Start
 
-### Backend
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- xAI API Key ([Get one here](https://x.ai))
+
+### Installation
+
+**1. Clone and setup backend:**
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# Set up environment variables
+**2. Configure environment:**
+
+```bash
 cp .env.example .env
-# Edit .env and add your XAI_API_KEY
+# Add your XAI_API_KEY to .env
+```
 
-# Run the server
+**3. Start the backend:**
+
+```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
+**4. Setup and start frontend:**
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Run development server
 npm run dev
 ```
 
-The app will be available at <http://localhost:5173>
+**5. Open the app:** [http://localhost:5173](http://localhost:5173)
 
-## Features
-
-- **Market Scanner:** Browse active Polymarket markets sorted by volume
-- **AI Analysis:** Use Grok-4-1-fast with agentic web + X search to estimate probabilities
-- **Edge Detection:** Compare AI estimates vs market prices to find value
-- **Virtual Trading:** Simulate trades with $100,000 virtual USDC
-- **Trade Log:** Track your simulated positions and P&L
-
-## API Endpoints
+## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /markets | Fetch active Polymarket markets |
-| POST | /analyze | Analyze a market with Grok-4 |
-| POST | /simulate-trade | Place a simulated trade |
-| GET | /portfolio | Get virtual balance and positions |
-| POST | /reset-portfolio | Reset to initial $10,000 balance |
+| `GET` | `/markets` | Fetch active markets (cached 60s) |
+| `POST` | `/analyze` | AI analysis with probability estimate |
+| `POST` | `/simulate-trade` | Execute a paper trade |
+| `GET` | `/portfolio` | Current balance and positions |
+| `POST` | `/update-prices` | Refresh prices for active trades |
+| `POST` | `/reset-portfolio` | Reset to $100,000 balance |
 
-## Design System
+## Project Structure
 
-- **Theme:** Strict Light Mode
-- **Colors:** White/Light Gray backgrounds, Black text, Black accents
-- **Style:** Professional, financial terminal, minimalist, flat design
+```text
+polyagent-sim/
+├── backend/
+│   ├── app/
+│   │   ├── main.py          # FastAPI application
+│   │   ├── models.py        # SQLAlchemy models
+│   │   ├── schemas.py       # Pydantic schemas
+│   │   ├── config.py        # Settings & validation
+│   │   └── services/        # xAI & Polymarket integrations
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   ├── api.js           # API client
+│   │   └── App.jsx          # Main application
+│   └── package.json
+└── README.md
+```
+
+## Configuration
+
+### Backend Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `XAI_API_KEY` | xAI API key for Grok-4 | ✅ |
+| `DATABASE_URL` | SQLite database path | Default: `./polyagent.db` |
+| `INITIAL_BALANCE` | Starting virtual balance | Default: `100000` |
+
+### Frontend Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `VITE_API_BASE_URL` | Backend API URL | Default: `http://localhost:8000` |
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
