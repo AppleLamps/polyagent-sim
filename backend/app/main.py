@@ -412,20 +412,44 @@ async def reset_portfolio(db: Session = Depends(get_db)):
 
 @app.post("/update-prices", response_model=PriceUpdateResponse)
 async def update_trade_prices(db: Session = Depends(get_db)):
-    """Update current prices for all active trades."""
+    """Update current prices for all active trades using batch fetch."""
     trades = db.query(Trade).filter(Trade.status == TradeStatus.ACTIVE).all()
-    updated_count = 0
 
+    if not trades:
+        return PriceUpdateResponse(
+            success=True,
+            updated_count=0,
+            message="No active trades to update"
+        )
+
+    # Collect all unique market IDs and fetch in batch
+    market_ids = list(set(trade.market_id for trade in trades))
+    logger.info(f"Updating prices for {len(trades)} trades across {len(market_ids)} markets")
+
+    try:
+        market_map = await polymarket_service.get_markets_batch(market_ids)
+        logger.info(f"Batch fetch returned {len(market_map)} markets")
+    except Exception as e:
+        logger.error(f"Batch market fetch failed: {e}")
+        return PriceUpdateResponse(
+            success=False,
+            updated_count=0,
+            message=f"Failed to fetch market prices: {str(e)}"
+        )
+
+    updated_count = 0
+    missing_markets = []
     for trade in trades:
-        try:
-            market = await polymarket_service.get_market_by_id(trade.market_id)
-            if market:
-                new_price = market["yes_price"] if trade.direction == TradeDirection.YES else market["no_price"]
-                trade.current_price = new_price
-                updated_count += 1
-        except Exception:
-            # Skip trades that fail to update
-            continue
+        market = market_map.get(trade.market_id)
+        if market:
+            new_price = market["yes_price"] if trade.direction == TradeDirection.YES else market["no_price"]
+            trade.current_price = new_price
+            updated_count += 1
+        else:
+            missing_markets.append(trade.market_id[:20])
+
+    if missing_markets:
+        logger.warning(f"Could not find prices for markets: {missing_markets}")
 
     db.commit()
     return PriceUpdateResponse(

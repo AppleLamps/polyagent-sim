@@ -162,17 +162,37 @@ async def search_markets(query: str, limit: int = 50) -> List[Dict[str, Any]]:
 async def get_market_by_id(market_id: str) -> Optional[Dict[str, Any]]:
     """Fetch a specific market by its condition ID."""
     async with httpx.AsyncClient(timeout=30.0) as client:
+        # Try fetching by condition_id with slug filter to get exact match
         response = await client.get(
-            f"{GAMMA_API_URL}/markets",
-            params={"condition_id": market_id}
+            f"{GAMMA_API_URL}/markets/{market_id}"
         )
+
+        # If direct fetch fails, try the query endpoint
+        if response.status_code != 200:
+            response = await client.get(
+                f"{GAMMA_API_URL}/markets",
+                params={"condition_id": market_id}
+            )
+
         if response.status_code == 200:
-            markets = response.json()
-            if markets:
-                market = markets[0]
+            data = response.json()
+            # Handle both single market and list response
+            if isinstance(data, list):
+                # Find the matching market by conditionId
+                for market in data:
+                    if market.get("conditionId") == market_id:
+                        outcome_prices_raw = market.get("outcomePrices", "[\"0.5\", \"0.5\"]")
+                        yes_price, no_price = parse_outcome_prices(outcome_prices_raw)
+                        return {
+                            "id": market.get("conditionId", ""),
+                            "question": market.get("question", ""),
+                            "yes_price": yes_price,
+                            "no_price": no_price
+                        }
+            elif isinstance(data, dict):
+                market = data
                 outcome_prices_raw = market.get("outcomePrices", "[\"0.5\", \"0.5\"]")
                 yes_price, no_price = parse_outcome_prices(outcome_prices_raw)
-
                 return {
                     "id": market.get("conditionId", ""),
                     "question": market.get("question", ""),
@@ -180,4 +200,91 @@ async def get_market_by_id(market_id: str) -> Optional[Dict[str, Any]]:
                     "no_price": no_price
                 }
     return None
+
+
+async def get_markets_batch(market_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetch multiple markets efficiently by fetching from the events endpoint
+    and creating a lookup map. Much faster than N individual API calls.
+    Returns a dict mapping market_id -> market data.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not market_ids:
+        return {}
+
+    market_map = {}
+    market_id_set = set(market_ids)
+
+    # Fetch from events endpoint (same as scanner) - this has full conditionIds
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.get(
+            f"{GAMMA_API_URL}/events",
+            params={
+                "active": "true",
+                "closed": "false",
+                "limit": 200,  # Fetch many events
+                "order": "volume24hr",
+                "ascending": "false"
+            }
+        )
+        if response.status_code != 200:
+            logger.error(f"Events fetch failed with status {response.status_code}")
+            return {}
+
+        events = response.json()
+        logger.info(f"Fetched {len(events)} events from Polymarket")
+
+        # Extract all markets from events
+        for event in events:
+            for market in event.get("markets", []):
+                condition_id = market.get("conditionId", "")
+                if condition_id in market_id_set:
+                    outcome_prices_raw = market.get("outcomePrices", "[\"0.5\", \"0.5\"]")
+                    yes_price, no_price = parse_outcome_prices(outcome_prices_raw)
+                    market_map[condition_id] = {
+                        "id": condition_id,
+                        "question": market.get("question", ""),
+                        "yes_price": yes_price,
+                        "no_price": no_price
+                    }
+
+    logger.info(f"Found {len(market_map)} matches in events, {len(market_id_set) - len(market_map)} missing")
+
+    # For any missing markets, try fetching more events or closed markets
+    missing_ids = market_id_set - set(market_map.keys())
+    if missing_ids:
+        logger.info(f"Trying to fetch {len(missing_ids)} missing markets from closed events...")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Try closed events too
+            response = await client.get(
+                f"{GAMMA_API_URL}/events",
+                params={
+                    "closed": "true",
+                    "limit": 100,
+                    "order": "endDate",
+                    "ascending": "false"
+                }
+            )
+            if response.status_code == 200:
+                events = response.json()
+                for event in events:
+                    for market in event.get("markets", []):
+                        condition_id = market.get("conditionId", "")
+                        if condition_id in missing_ids:
+                            outcome_prices_raw = market.get("outcomePrices", "[\"0.5\", \"0.5\"]")
+                            yes_price, no_price = parse_outcome_prices(outcome_prices_raw)
+                            market_map[condition_id] = {
+                                "id": condition_id,
+                                "question": market.get("question", ""),
+                                "yes_price": yes_price,
+                                "no_price": no_price
+                            }
+
+    final_missing = market_id_set - set(market_map.keys())
+    if final_missing:
+        logger.warning(f"Could not find {len(final_missing)} markets: {[m[:20] for m in final_missing]}")
+
+    return market_map
 

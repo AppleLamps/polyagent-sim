@@ -85,7 +85,20 @@ export async function simulateTrade(marketId, marketQuestion, amount, direction,
   return response.json();
 }
 
+export async function updatePrices() {
+  const response = await fetch(`${API_BASE}/update-prices`, { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to update prices');
+  return response.json();
+}
+
 export async function fetchPortfolio() {
+  // Update prices first to get accurate P&L
+  try {
+    await updatePrices();
+  } catch (e) {
+    console.warn('Failed to update prices:', e);
+  }
+
   const response = await fetch(`${API_BASE}/portfolio`);
   if (!response.ok) throw new Error('Failed to fetch portfolio');
   return response.json();

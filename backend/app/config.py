@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     xai_api_key: str = ""
-    xai_model: str = "grok-4-1-fast"  # AI model for analysis (grok-4-1-fast, grok-beta, etc.)
+    xai_model: str = "grok-4-1-fast-reasoning-latest"  # AI model for analysis
     database_url: str = "sqlite:///./polyagent.db"
     initial_balance: float = 100000.0  # Starting virtual USDC ($100K)
 

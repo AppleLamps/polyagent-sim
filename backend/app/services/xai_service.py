@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from xai_sdk import Client
 from xai_sdk.chat import user
@@ -34,13 +35,29 @@ def analyze_market(
     settings = get_settings()
     client = Client(api_key=settings.xai_api_key)
 
+    # Calculate dynamic lookback period based on market volatility
+    # High volatility = focus on very recent info, low volatility = broader timeframe
+    lookback_days = 14  # Default lookback
+    if one_day_change and abs(one_day_change) > 0.10:
+        lookback_days = 3  # High volatility - very recent info only
+    elif one_day_change and abs(one_day_change) > 0.05:
+        lookback_days = 7  # Moderate volatility
+    elif days_until_resolution is not None and days_until_resolution <= 3:
+        lookback_days = 7  # Short time to resolution - focus on recent
+
+    search_start_date = datetime.now() - timedelta(days=lookback_days)
+
     # Create chat with agentic search tools (web + X)
-    # Model is configurable via settings.xai_model
+    # Enable image/video understanding for visual context (charts, screenshots, etc.)
     chat = client.chat.create(
         model=settings.xai_model,
         tools=[
-            web_search(),
-            x_search(),
+            web_search(enable_image_understanding=True),
+            x_search(
+                from_date=search_start_date,
+                enable_image_understanding=True,
+                enable_video_understanding=True
+            ),
         ],
     )
 
@@ -157,10 +174,13 @@ MARKET QUESTION: {question}
 TASK:
 1. Search the web for current news, data, and expert opinions relevant to this question
 2. Search X/Twitter for real-time sentiment, breaking news, and insider perspectives
-3. Consider the resolution criteria carefully
-4. Analyze price momentum (recent price changes may indicate new information)
-5. Estimate the TRUE probability this event will resolve YES
-6. Provide a specific trade recommendation based on edge, confidence, and portfolio status
+3. Search for "Polymarket {question}" to find community discussion and contrarian takes - traders often post obscure rules, debunking evidence, or resolution criteria details in comments
+4. Pay attention to images and charts in search results - polling data, screenshots of official statements, etc.
+5. Consider the resolution criteria carefully
+6. Analyze price momentum (recent price changes may indicate new information)
+7. RED TEAM YOUR THESIS: Actively search for evidence that contradicts your initial hunch. What could make you wrong?
+8. Estimate the TRUE probability this event will resolve YES
+9. Provide a specific trade recommendation based on edge, confidence, and portfolio status
 
 Return your analysis as a JSON object with this EXACT structure:
 {{
@@ -179,6 +199,12 @@ GUIDELINES:
 - List specific upcoming dates/events that could move the market
 - Acknowledge risks that could invalidate your analysis
 - Use line breaks in reasoning for readability
+
+CRITICAL - RESPECT MARKET WISDOM:
+- If market is < 20% or > 80%, assume the market knows something you don't
+- To bet against extreme prices, you need EXTRAORDINARY evidence (official statements, leaked docs, etc.)
+- Don't confidently contradict a 5% or 95% market without smoking-gun evidence
+- Markets aggregate information from thousands of traders - be humble
 
 TRADE RECOMMENDATION GUIDELINES:
 - BUY_YES: If your probability > market price (positive edge on YES)
