@@ -1,12 +1,38 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { resetPortfolio } from '../api';
 
 function TopBar({ balance, pnl, onRefresh }) {
+  const [resetting, setResetting] = useState(false);
+
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2
     }).format(value);
+  };
+
+  const handleReset = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to reset your portfolio?\n\n' +
+      'This will:\n' +
+      '• Delete all active trades\n' +
+      '• Reset balance to $100,000\n' +
+      '• Clear all trade history\n\n' +
+      'This action cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setResetting(true);
+      await resetPortfolio();
+      await onRefresh();
+    } catch (err) {
+      alert('Failed to reset portfolio: ' + err.message);
+    } finally {
+      setResetting(false);
+    }
   };
 
   return (
@@ -31,7 +57,7 @@ function TopBar({ balance, pnl, onRefresh }) {
                 {formatCurrency(balance)}
               </div>
             </div>
-            
+
             <div className="text-right">
               <div className="text-xs text-text-dark uppercase tracking-wide">Total P&L</div>
               <div className={`text-xl font-bold font-mono ${pnl >= 0 ? 'text-black' : 'text-text-dark'}`}>
@@ -39,12 +65,21 @@ function TopBar({ balance, pnl, onRefresh }) {
               </div>
             </div>
 
-            <button
-              onClick={onRefresh}
-              className="btn-secondary text-sm"
-            >
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={onRefresh}
+                className="btn-secondary text-sm"
+              >
+                Refresh
+              </button>
+              <button
+                onClick={handleReset}
+                disabled={resetting}
+                className={`btn-secondary text-sm ${resetting ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {resetting ? 'Resetting...' : 'Reset Portfolio'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

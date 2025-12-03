@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -8,7 +8,7 @@ class AnalyzeRequest(BaseModel):
     market_id: str
     question: str
     description: Optional[str] = None
-    current_price: float
+    current_price: float = Field(ge=0.0, le=1.0)
     end_date: Optional[str] = None
     one_day_change: Optional[float] = None
     one_week_change: Optional[float] = None
@@ -18,9 +18,24 @@ class AnalyzeRequest(BaseModel):
 class SimulateTradeRequest(BaseModel):
     market_id: str
     market_question: str
-    amount: float
-    direction: str  # "YES" or "NO"
-    price: float
+    amount: float = Field(gt=0, le=1000000, description="Trade amount in USDC (max $1M)")
+    direction: str = Field(description="Trade direction: YES or NO")
+    price: float = Field(ge=0.0, le=1.0, description="Entry price (0.0 to 1.0)")
+
+    @field_validator('amount')
+    @classmethod
+    def validate_amount(cls, v: float) -> float:
+        if v < 1:
+            raise ValueError('Minimum trade amount is $1')
+        # Round to 2 decimal places
+        return round(v, 2)
+
+    @field_validator('direction')
+    @classmethod
+    def validate_direction(cls, v: str) -> str:
+        if v not in ['YES', 'NO']:
+            raise ValueError('Direction must be YES or NO')
+        return v
 
 
 # Response schemas
@@ -81,4 +96,18 @@ class TradeResponse(BaseModel):
     message: str
     trade: Optional[TradeInfo] = None
     new_balance: float
+
+
+class ResetResponse(BaseModel):
+    """Response model for portfolio reset endpoint."""
+    success: bool
+    balance: float
+    message: str
+
+
+class PriceUpdateResponse(BaseModel):
+    """Response model for price update endpoint."""
+    success: bool
+    updated_count: int
+    message: str
 

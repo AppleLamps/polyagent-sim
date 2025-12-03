@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:8000';
+// Use environment variable for API base URL, with fallback to localhost for development
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export async function fetchMarkets() {
   const response = await fetch(`${API_BASE}/markets`);

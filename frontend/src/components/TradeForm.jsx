@@ -10,7 +10,7 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    
+
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
       setError('Please enter a valid amount');
@@ -65,22 +65,20 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
         <button
           type="button"
           onClick={() => setDirection('YES')}
-          className={`py-3 font-medium transition-colors ${
-            direction === 'YES'
+          className={`py-3 font-medium transition-colors ${direction === 'YES'
               ? 'bg-black text-white'
               : 'bg-white text-black border border-black hover:bg-bg-light'
-          }`}
+            }`}
         >
           YES @ {(market.yes_price * 100).toFixed(1)}%
         </button>
         <button
           type="button"
           onClick={() => setDirection('NO')}
-          className={`py-3 font-medium transition-colors ${
-            direction === 'NO'
+          className={`py-3 font-medium transition-colors ${direction === 'NO'
               ? 'bg-black text-white'
               : 'bg-white text-black border border-black hover:bg-bg-light'
-          }`}
+            }`}
         >
           NO @ {(market.no_price * 100).toFixed(1)}%
         </button>
@@ -124,10 +122,11 @@ function TradeForm({ market, analysis, balance, onTradeComplete }) {
 
       <button
         type="submit"
-        disabled={loading}
-        className="btn-primary w-full py-3 disabled:opacity-50"
+        disabled={loading || !market || !analysis}
+        className={`btn-primary w-full py-3 text-lg ${loading ? 'opacity-50 cursor-not-allowed' : ''
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
       >
-        {loading ? 'Placing Trade...' : `Place ${direction} Trade`}
+        {loading ? '⏳ Placing Trade...' : `Place ${direction} Trade`}
       </button>
     </form>
   );

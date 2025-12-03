@@ -82,7 +82,43 @@ function MarketScanner({ markets, loading, selectedMarket, onSelectMarket }) {
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-text-dark">Loading markets...</div>
+          <div className="text-center">
+            <div className="text-2xl mb-2">⏳</div>
+            <div className="text-text-dark">Loading markets...</div>
+          </div>
+        </div>
+      ) : markets.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center py-8">
+            <div className="text-4xl mb-3">📊</div>
+            <div className="text-lg font-medium text-black mb-2">No Markets Available</div>
+            <div className="text-sm text-text-dark mb-4">
+              Unable to fetch markets from Polymarket.<br />
+              Check your internet connection and try again.
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-secondary text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      ) : filteredMarkets.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center py-8">
+            <div className="text-4xl mb-3">🔍</div>
+            <div className="text-lg font-medium text-black mb-2">No Results</div>
+            <div className="text-sm text-text-dark mb-4">
+              No markets match "{searchTerm}"
+            </div>
+            <button
+              onClick={() => setSearchTerm('')}
+              className="btn-secondary text-sm"
+            >
+              Clear Search
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto space-y-2">
@@ -136,12 +172,6 @@ function MarketScanner({ markets, loading, selectedMarket, onSelectMarket }) {
               </div>
             </button>
           ))}
-
-          {filteredMarkets.length === 0 && (
-            <div className="text-center text-text-dark py-8">
-              No markets found
-            </div>
-          )}
         </div>
       )}
     </div>

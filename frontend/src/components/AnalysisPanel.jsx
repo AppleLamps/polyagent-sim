@@ -20,8 +20,24 @@ function AnalysisPanel({ market, balance, onTradeComplete }) {
       const result = await analyzeMarket(market);
       setAnalysis(result);
     } catch (err) {
-      setError('Failed to analyze market. Please check your API key.');
-      console.error(err);
+      // Parse error to provide more specific error messages
+      let errorMessage = 'Failed to analyze market.';
+      const errStr = err.message || String(err);
+
+      if (errStr.includes('401') || errStr.includes('403')) {
+        errorMessage = 'Invalid API key. Please check your XAI_API_KEY in backend/.env';
+      } else if (errStr.includes('429')) {
+        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+      } else if (errStr.includes('network') || errStr.includes('fetch') || errStr.includes('Failed to fetch')) {
+        errorMessage = 'Network error. Make sure the backend is running on port 8000.';
+      } else if (errStr.includes('500')) {
+        errorMessage = 'Server error. Check the backend logs for details.';
+      } else if (errStr.includes('timeout')) {
+        errorMessage = 'Request timed out. The AI analysis is taking too long.';
+      }
+
+      setError(errorMessage);
+      console.error('Analysis error:', err);
     } finally {
       setLoading(false);
     }
@@ -134,8 +150,8 @@ function AnalysisPanel({ market, balance, onTradeComplete }) {
           <div className="flex items-center gap-3">
             <span className="text-sm text-text-dark">AI Confidence:</span>
             <span className={`px-2 py-1 text-xs font-bold uppercase ${analysis.confidence === 'high' ? 'bg-black text-white' :
-                analysis.confidence === 'medium' ? 'bg-gray-200 text-black' :
-                  'bg-white text-black border border-black'
+              analysis.confidence === 'medium' ? 'bg-gray-200 text-black' :
+                'bg-white text-black border border-black'
               }`}>
               {analysis.confidence || 'medium'}
             </span>
